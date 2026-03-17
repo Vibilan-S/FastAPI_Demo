@@ -1,0 +1,87 @@
+from fastapi import FastAPI, Depends
+from models import Product
+from database import session, engine
+import database_models
+from sqlalchemy.orm import Session
+
+app = FastAPI()
+
+#so that this code created table for us in our db
+database_models.Base.metadata.create_all(bind=engine)
+
+@app.get("/")
+def greet():
+    return "Welcome to Vibilan's project"
+
+products = [
+    Product(id=1, name="Phone", description="A smartphone", price=699.99, quantity=50),
+    Product(id=2, name="Laptop", description="A powerful laptop", price=999.99, quantity=30),
+    Product(id=5, name="Pen", description="A blue ink pen", price=1.99, quantity=100),
+    Product(id=6, name="Table", description="A wooden table", price=199.99, quantity=20)
+]
+
+def get_db():
+    db = session()
+    try:
+        yield db #we wait for others to use the db and then we close it
+    finally:
+        db.close()
+
+#Just to only once fill the db with some values
+def init_db():
+    db = session()
+
+    count = db.query(database_models.Product).count
+
+    if count==0:
+        for product in products:
+            #So to add to db we need to use the Product we made from sqlalchemy and not of pydantic
+            #So database_models.Product() takes key value pair and convert it
+            # .model_dump returns dictionary and ** unpacks it into key value pair
+            db.add(database_models.Product(**product.model_dump()))
+        db.commit()
+
+
+init_db()
+
+@app.get("/products")
+def get_all_products(db: Session = Depends(get_db)):
+    db_products = db.query(database_models.Product).all()
+    return db_products
+
+@app.get("/product/{id}")
+def get_product_by_id(id: int, db: Session = Depends(get_db)):
+    db_product = db.query(database_models.Product).filter(database_models.Product.id == id).first()
+    if db_product:
+        return db_product
+        
+    return "product not found"
+
+@app.post("/product")
+def add_product(product: Product, db: Session = Depends(get_db)):
+    db.add(database_models.Product(**product.model_dump()))
+    db.commit()
+    return product
+
+@app.put("/product")
+def update_product(id: int, product: Product, db: Session = Depends(get_db)):
+    db_product = db.query(database_models.Product).filter(database_models.Product.id == id).first()
+    if db_product:
+        db_product.name = product.name
+        db_product.description = product.description
+        db_product.price = product.price
+        db_product.quantity = product.quantity
+        db.commit()
+        return "Product updated"
+    else:
+        return "No product found"
+
+@app.delete("/product")
+def delete_product(id: int, db: Session = Depends(get_db)):
+    db_product = db.query(database_models.Product).filter(database_models.Product.id == id).first()
+    if db_product:
+        db.delete(db_product)
+        db.commit()
+    else:
+        "Product not found"
+    return "Product not found"
